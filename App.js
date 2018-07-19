@@ -1,148 +1,208 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- * @flow
- */
-
-'use strict';
+/* eslint-disable */
 
 import React, {
   Component
-}                             from 'react';
+} from 'react';
 import {
-  Platform,
-  AppRegistry,
   StyleSheet,
   View,
   Text,
-  ListView,
-  DeviceEventEmitter
-}                             from 'react-native';
-import Beacons                from 'react-native-beacons-manager';
-// import BluetoothState         from 'react-native-bluetooth-state';
+  ListView
+} from 'react-native';
+import Beacons from 'react-native-beacons-manager';
+// import BluetoothState from 'react-native-bluetooth-state';
 
-type Props = {};
-export default class App extends Component<Props> {
+/**
+* uuid of YOUR BEACON (change to yours)
+* @type {String} uuid
+*/
+const UUID = '00000000-0000-0000-0000-00000000000b';
+const IDENTIFIER = '123456';
 
-  constructor(props) {
-    super(props);
-    // Create our dataSource which will be displayed in the ListView
-    var ds = new ListView.DataSource({
-      rowHasChanged: (r1, r2) => r1 !== r2 }
-    );
-    this.state = {
-      bluetoothState: '',
-      // region information
-      identifier: 'GemTot for iOS',
-      uuid: '6665542b-41a1-5e00-931c-6a82db9b78c1',
-      // React Native ListView datasource initialization
-      dataSource: ds.cloneWithRows([])
-    };
-  }
+const OTHER_UUID = '1ecc80bd-4229-4865-a666-6577fad30496';
+const OTHER_IDENTIFIER = '654321';
 
-  componentWillMount(){
-    //
-    // ONLY non component state aware here in componentWillMount
-    //
-    // Request for authorization while the app is open
-    Beacons.requestWhenInUseAuthorization();
-    // Define a region which can be identifier + uuid,
-    // identifier + uuid + major or identifier + uuid + major + minor
-    // (minor and major properties are numbers)
-    const regionIBeacon = {
-      identifier: 'GemTot for iOS',
-      // uuid: '00000000-0000-0000-0000-00000000000b', // => IMPORTANT: replace here with your beacon "uuid"
-      uuid: '1ecc80bd-4229-4865-a666-6577fad30496'
-    };
-    const regionEddy = {
-      identifier: 'Apple Watch',
-      uuid: '41573219-B028-21D8-790A-60A304C425A1' // => IMPORTANT: replace here with your beacon "uuid"
-    };
-    // Range for iBeacons inside the region
-    Beacons.startRangingBeaconsInRegion(regionIBeacon);
+export default class App extends Component {
+  // will be set as a reference to "beaconsDidRange" event:
+  beaconsDidRangeEvent = null;
+
+  state = {
+    // region information
+    uuid: UUID,
+    identifier: IDENTIFIER,
+
+    otherUUID: OTHER_UUID,
+    otherIdentifier: OTHER_IDENTIFIER,
+
+    // list of desired UUID to range (Note: these will be section headers in the listview rendered):
+    rangedBeaconsUUIDMap: {
+      [UUID.toUpperCase()]: [],
+      [OTHER_UUID.toUpperCase()]: []
+    },
+    // React Native ListViews datasources initialization
+    rangingDataSource: new ListView.DataSource({
+      rowHasChanged: (r1, r2) => r1 !== r2,
+      sectionHeaderHasChanged: (s1, s2) => s1 !== s2
+    }).cloneWithRows([]),
+
+    // check bluetooth state:
+    bluetoothState: '',
+    distance: 0
+  };
+
+  componentWillMount() {
+    const { identifier, uuid } = this.state;
+    const { otherIdentifier, otherUUID } = this.state;
+
+    Beacons.requestAlwaysAuthorization();
+
+    const region = { identifier, uuid };
+    const anotherRegion = { identifier: otherIdentifier, uuid: otherUUID };
+
+    // Range for beacons inside the region
+    Beacons
+      .startRangingBeaconsInRegion(region) // or like  < v1.0.7: .startRangingBeaconsInRegion(identifier, uuid)
+      .then(() => console.log('Beacons ranging started succesfully'))
+      .catch(error => console.log(`Beacons ranging not started, error: ${error}`));
+    // Range for beacons inside the other region
+    Beacons
+      .startRangingBeaconsInRegion(anotherRegion) // or like  < v1.0.7: .startRangingBeaconsInRegion(identifier, uuid)
+      .then(() => console.log('Beacons ranging started succesfully'))
+      .catch(error => console.log(`Beacons ranging not started, error: ${error}`));
+
+    // update location to ba able to monitor:
+    Beacons.startUpdatingLocation();
   }
 
   componentDidMount() {
+    //
+    // component state aware here - attach events
+    //
+
     // Ranging: Listen for beacon changes
-    this.beaconsDidRange = Beacons.BeaconsEventEmitter.addListener(
+    this.beaconsDidRangeEvent = Beacons.BeaconsEventEmitter.addListener(
       'beaconsDidRange',
       (data) => {
+        const { beacons } = data;
+        const { rangingDataSource } = this.state;
         this.setState({
-          dataSource: this.state.dataSource.cloneWithRows(data.beacons)
+          rangingDataSource: rangingDataSource.cloneWithRowsAndSections(this.convertRangingArrayToMap(beacons)),
+          distance: beacons[0].accuracy.toFixed(2)
         });
-        console.log("Data: "+JSON.stringify(data))
-        console.log("Beacon: "+JSON.stringify(data.beacons))
+        console.log('***UPDATED DATA RANGING SOURCE: '+JSON.stringify(rangingDataSource.cloneWithRowsAndSections(this.convertRangingArrayToMap(beacons))))
       }
     );
+
+    // listen bluetooth state change event
+    // BluetoothState.subscribe(
+    //   bluetoothState => this.setState({ bluetoothState: bluetoothState })
+    // );
+
+    // BluetoothState.initialize();
   }
 
-  componentWillUnMount(){
-    this.beaconsDidRange = null;
+  componentWillUnMount() {
+    const { identifier, uuid } = this.state;
+    const { otherIdentifier, otherUUID } = this.state;
+
+    const region = { identifier, uuid };
+    const regionAlternate = { identifier: otherIdentifier, uuid: otherUUID };
+
+    // stop ranging beacons:
+    Beacons
+      .stopRangingBeaconsInRegion(region)
+      .then(() => console.log('Beacons ranging stopped succesfully'))
+      .catch(error => console.log(`Beacons ranging not stopped, error: ${error}`));
+
+    Beacons
+      .stopRangingBeaconsInRegion(regionAlternate)
+      .then(() => console.log('Beacons ranging stopped succesfully'))
+      .catch(error => console.log(`Beacons ranging not stopped, error: ${error}`));
+
+    // remove ranging event we registered at componentDidMount
+    this.beaconsDidRangeEvent.remove();
   }
 
   render() {
-    const { bluetoothState, dataSource } =  this.state;
+    const { bluetoothState, rangingDataSource } = this.state;
+
     return (
       <View style={styles.container}>
         <Text style={styles.btleConnectionStatus}>
-          Bluetooth connection status: { bluetoothState ? bluetoothState  : 'NA' }
+          Updated distance first beacon: {this.state.distance}m
         </Text>
         <Text style={styles.headline}>
-          All beacons in the area
-        </Text>
+          ranging beacons:
+          </Text>
         <ListView
-          dataSource={ dataSource }
-          enableEmptySections={ true }
-          renderRow={this.renderRow}
+          dataSource={rangingDataSource}
+          enableEmptySections={true}
+          renderRow={this.renderRangingRow}
+          renderSectionHeader={this.renderRangingSectionHeader}
         />
       </View>
     );
   }
 
-  renderRow = rowData => {
-    return (
-      <View style={styles.row}>
-        <Text style={styles.smallText}>
-          UUID: {rowData.uuid ? rowData.uuid  : 'NA'}
+  renderRangingSectionHeader = (sectionData, uuid) => (
+    <Text style={styles.rowSection}>
+      {uuid}
+    </Text>
+  );
+
+  renderRangingRow = (rowData) => (
+    <View style={styles.row}>
+      <Text style={styles.smallText}>
+        UUID: {rowData.uuid ? rowData.uuid : 'NA'}
+      </Text>
+      <Text style={styles.smallText}>
+        Major: {rowData.major ? rowData.major : 'NA'}
+      </Text>
+      <Text style={styles.smallText}>
+        Minor: {rowData.minor ? rowData.minor : 'NA'}
+      </Text>
+      <Text>
+        RSSI: {rowData.rssi ? rowData.rssi : 'NA'}
+      </Text>
+      <Text>
+        Proximity: {rowData.proximity ? rowData.proximity : 'NA'}
+      </Text>
+      <Text>
+        Distance: {rowData.accuracy ? rowData.accuracy.toFixed(2) : 'NA'}m
         </Text>
-        <Text style={styles.smallText}>
-          Major: {rowData.major ? rowData.major : 'NA'}
-        </Text>
-        <Text style={styles.smallText}>
-          Minor: {rowData.minor ? rowData.minor : 'NA'}
-        </Text>
-        <Text>
-          RSSI: {rowData.rssi ? rowData.rssi : 'NA'}
-        </Text>
-        <Text>
-          Proximity: {rowData.proximity ? rowData.proximity : 'NA'}
-        </Text>
-        <Text>
-          Distance: {rowData.accuracy ? rowData.accuracy.toFixed(2) : 'NA'}m
-        </Text>
-      </View>
-    );
+    </View>
+  );
+
+  convertRangingArrayToMap = (rangedBeacon) => {
+    const { rangedBeaconsUUIDMap } = this.state;
+
+    rangedBeacon.forEach(
+      (beacon) => {
+        if (beacon.uuid.length > 0) {
+          const uuid = beacon.uuid.toUpperCase();
+          console.log('beacon '+uuid+' accuracy: '+ JSON.stringify(beacon.accuracy));
+          const rangedBeacons = rangedBeaconsUUIDMap[uuid].filter(rangedBeac => rangedBeac === uuid);
+
+          rangedBeaconsUUIDMap[uuid] = [...rangedBeacons, beacon];
+        }
+      });
+    this.setState({ rangedBeaconsUUIDMap });
+    return rangedBeaconsUUIDMap;
   }
+
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingTop: 60,
+    margin: 5,
     backgroundColor: '#F5FCFF',
   },
-  welcome: {
-    fontSize: 20,
-    textAlign: 'center',
-    margin: 10,
-  },
-  instructions: {
-    textAlign: 'center',
-    color: '#333333',
-    marginBottom: 5,
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   btleConnectionStatus: {
     fontSize: 20,
@@ -150,13 +210,17 @@ const styles = StyleSheet.create({
   },
   headline: {
     fontSize: 20,
-    paddingTop: 20
+    paddingTop: 20,
+    marginBottom: 20
   },
   row: {
     padding: 8,
     paddingBottom: 16
   },
-    smallText: {
+  smallText: {
     fontSize: 11
+  },
+  rowSection: {
+    fontWeight: '700'
   }
 });
