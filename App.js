@@ -55,6 +55,7 @@ export default class App extends Component {
     const { otherIdentifier, otherUUID } = this.state;
 
     Beacons.requestAlwaysAuthorization();
+    Beacons.allowsBackgroundLocationUpdates(true)
 
     const region = { identifier, uuid };
     const anotherRegion = { identifier: otherIdentifier, uuid: otherUUID };
@@ -87,7 +88,7 @@ export default class App extends Component {
         const { rangingDataSource } = this.state;
         this.setState({
           rangingDataSource: rangingDataSource.cloneWithRowsAndSections(this.convertRangingArrayToMap(beacons)),
-          distance: beacons[0].accuracy.toFixed(2)
+          distance: beacons[0] ? beacons[0].accuracy.toFixed(2) : 0
         });
         console.log('***UPDATED DATA RANGING SOURCE: '+JSON.stringify(rangingDataSource.cloneWithRowsAndSections(this.convertRangingArrayToMap(beacons))))
       }
